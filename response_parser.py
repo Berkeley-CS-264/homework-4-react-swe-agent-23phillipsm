@@ -40,4 +40,34 @@ DO NOT CHANGE ANY TEST! AS THEY WILL BE USED FOR EVALUATION.
         
         TODO(student): Implement this function using rfind to parse the function call
         """
-        raise NotImplementedError("parse method must be implemented by the student")
+        begin_idx = text.rfind(self.BEGIN_CALL)
+        end_idx = text.rfind(self.END_CALL)
+        
+        if begin_idx == -1 or end_idx == -1 or begin_idx >= end_idx:
+            raise ValueError(f"Could not find function call markers in text. BEGIN_CALL at {begin_idx}, END_CALL at {end_idx}")
+        
+        thought = text[:begin_idx].strip()
+        
+        call_section = text[begin_idx + len(self.BEGIN_CALL):end_idx].strip()
+        
+        parts = call_section.split(self.ARG_SEP)
+        if not parts:
+            raise ValueError("Function call section is empty")
+        
+        function_name = parts[0].strip()
+        
+        arguments = {}
+        for part in parts[1:]:
+            if self.VALUE_SEP not in part:
+                continue
+            
+            arg_name, arg_value = part.split(self.VALUE_SEP, 1)
+            arg_name = arg_name.strip()
+            arg_value = arg_value.strip()
+            arguments[arg_name] = arg_value
+        
+        return {
+            "thought": thought,
+            "name": function_name,
+            "arguments": arguments
+        }

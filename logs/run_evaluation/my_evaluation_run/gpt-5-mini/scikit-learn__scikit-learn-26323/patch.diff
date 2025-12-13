@@ -1,0 +1,38 @@
+diff --git a/sklearn/compose/_column_transformer.py b/sklearn/compose/_column_transformer.py
+index 4eddd12b1..8e54c04bd 100644
+--- a/sklearn/compose/_column_transformer.py
++++ b/sklearn/compose/_column_transformer.py
+@@ -276,7 +276,8 @@ class ColumnTransformer(TransformerMixin, _BaseComposition):
+         """Set the output container when `"transform"` and `"fit_transform"` are called.
+ 
+         Calling `set_output` will set the output of all estimators in `transformers`
+-        and `transformers_`.
++        and `transformers_`, as well as the estimator provided in `remainder`
++        when it is an estimator.
+ 
+         Parameters
+         ----------
+@@ -293,6 +294,8 @@ class ColumnTransformer(TransformerMixin, _BaseComposition):
+             Estimator instance.
+         """
+         super().set_output(transform=transform)
++        # Set output on all transformers provided in the transformers list
++        # and on any fitted transformers (transformers_) too.
+         transformers = (
+             trans
+             for _, trans, _ in chain(
+@@ -303,6 +306,14 @@ class ColumnTransformer(TransformerMixin, _BaseComposition):
+         for trans in transformers:
+             _safe_set_output(trans, transform=transform)
+ 
++        # Also ensure that remainder estimator (when it is an estimator and not
++        # a string specifier) receives the output configuration. For unfitted
++        # ColumnTransformer, remainder is stored in self.remainder; for fitted
++        # ColumnTransformer, the fitted remainder is present in transformers_
++        # and has already been handled above.
++        if getattr(self, "remainder", None) not in (None, "passthrough", "drop"):
++            _safe_set_output(self.remainder, transform=transform)
++
+         return self
+ 
+     def get_params(self, deep=True):

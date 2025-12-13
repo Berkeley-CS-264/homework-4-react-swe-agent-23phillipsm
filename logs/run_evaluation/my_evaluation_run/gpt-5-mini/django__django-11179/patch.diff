@@ -1,0 +1,20 @@
+diff --git a/django/db/models/deletion.py b/django/db/models/deletion.py
+index 92fe4affb9..c5e781d990 100644
+--- a/django/db/models/deletion.py
++++ b/django/db/models/deletion.py
+@@ -276,7 +276,15 @@ class Collector:
+             instance = list(instances)[0]
+             if self.can_fast_delete(instance):
+                 with transaction.mark_for_rollback_on_error():
++                    # send pre_delete signal for consistency with the non-optimized path
++                    if not model._meta.auto_created:
++                        signals.pre_delete.send(sender=model, instance=instance, using=self.using)
+                     count = sql.DeleteQuery(model).delete_batch([instance.pk], self.using)
++                    # send post_delete signal for consistency with the non-optimized path
++                    if not model._meta.auto_created:
++                        signals.post_delete.send(sender=model, instance=instance, using=self.using)
++                    # Clear the PK on the instance so it can't be mistaken for a saved object.
++                    setattr(instance, model._meta.pk.attname, None)
+                 return count, {model._meta.label: count}
+ 
+         with transaction.atomic(using=self.using, savepoint=False):

@@ -56,7 +56,28 @@ class ReactAgent:
         
         TODO(student): Implement this function to add a message to the list
         """
-        raise NotImplementedError("add_message must be implemented by the student")
+        # Generate unique_id as the next index in the list
+        unique_id = len(self.id_to_message)
+        
+        # Create message dictionary
+        message = {
+            "role": role,
+            "content": content,
+            "timestamp": time.time(),
+            "unique_id": unique_id
+        }
+        
+        # Add to the list
+        self.id_to_message.append(message)
+        
+        # Update current_message_id
+        self.current_message_id = unique_id
+        
+        # Set root_message_id if this is the first message
+        if self.root_message_id == -1:
+            self.root_message_id = unique_id
+        
+        return unique_id
 
     def set_message_content(self, message_id: int, content: str) -> None:
         """
@@ -64,7 +85,8 @@ class ReactAgent:
         
         TODO(student): Implement this function to update a message's content
         """
-        raise NotImplementedError("set_message_content must be implemented by the student")
+        
+        self.id_to_message[message_id]["content"] = content
 
     def get_context(self) -> str:
         """
@@ -72,7 +94,10 @@ class ReactAgent:
         
         TODO(student): Implement this function to build the context from the message list
         """
-        raise NotImplementedError("get_context must be implemented by the student")
+        context_parts = []
+        for message_id in range(len(self.id_to_message)):
+            context_parts.append(self.message_id_to_context(message_id))
+        return "\n".join(context_parts)
 
     # -------------------- REQUIRED TOOLS --------------------
     def add_functions(self, tools: List[Callable]):
@@ -85,8 +110,9 @@ class ReactAgent:
         
         TODO(student): Implement this function to register tools and build tool descriptions
         """
-        raise NotImplementedError("add_functions must be implemented by the student")
-    
+        for tool in tools:
+            self.function_map[tool.__name__] = tool
+        
     def finish(self, result: str):
         """The agent must call this function with the final result when it has solved the given task. The function calls "git add -A and git diff --cached" to generate a patch and returns the patch as submission.
 
@@ -114,10 +140,78 @@ class ReactAgent:
         TODO(student): Implement the main ReAct loop
         """
         # Set the user task message
-        # self.set_message_content(self.user_message_id, task)
+        self.set_message_content(self.user_message_id, task)
         
         # Main ReAct loop
-        raise NotImplementedError("run method must be implemented by the student")
+        for step in range(max_steps):
+            # Build messages for LLM API from the message list
+            messages = []
+            for msg in self.id_to_message:
+                # For system messages, use the formatted context (includes tools)
+                if msg["role"] == "system":
+                    messages.append({
+                        "role": "system",
+                        "content": self.message_id_to_context(msg["unique_id"])
+                    })
+                else:
+                    messages.append({
+                        "role": msg["role"],
+                        "content": msg["content"]
+                    })
+            
+            # Query the LLM
+            try:
+                llm_response = self.llm.generate(messages)
+            except Exception as e:
+                # Add error message as user message so LLM can see it next iteration
+                error_msg = f"Error calling LLM: {str(e)}"
+                self.add_message("user", error_msg)
+                continue
+            
+            # Add assistant response to message list
+            assistant_msg_id = self.add_message("assistant", llm_response)
+            
+            # Parse the function call
+            try:
+                parsed = self.parser.parse(llm_response)
+            except Exception as e:
+                # Add parsing error and continue
+                error_msg = f"Error parsing function call: {str(e)}"
+                self.add_message("user", error_msg)
+                continue
+            
+            # Extract function name and arguments
+            function_name = parsed["name"]
+            arguments = parsed["arguments"]
+            
+            # Check if finish was called
+            if function_name == "finish":
+                result = arguments.get("result", "")
+                # Call finish to get the final result
+                final_result = self.finish(result)
+                return final_result
+            
+            # Execute the tool
+            if function_name not in self.function_map:
+                error_msg = f"Unknown function: {function_name}. Available functions: {list(self.function_map.keys())}"
+                self.add_message("user", error_msg)
+                continue
+            
+            tool = self.function_map[function_name]
+            
+            try:
+                # Call the tool with arguments
+                tool_result = tool(**arguments)
+                # Add tool result to message list
+                self.add_message("user", f"Tool {function_name} returned: {tool_result}")
+            except Exception as e:
+                # Add error message
+                error_msg = f"Error executing {function_name}: {str(e)}"
+                self.add_message("user", error_msg)
+                continue
+        
+        # If we've exhausted max_steps without calling finish, return empty result
+        return ""
 
     def message_id_to_context(self, message_id: int) -> str:
         """

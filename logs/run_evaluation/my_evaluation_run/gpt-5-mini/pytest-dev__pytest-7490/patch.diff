@@ -1,0 +1,12 @@
+diff --git a/tests/test_dynamic_xfail.py b/tests/test_dynamic_xfail.py
+new file mode 100644
+index 000000000..498217aaf
+--- /dev/null
++++ b/tests/test_dynamic_xfail.py
+@@ -0,0 +1,6 @@
++import pytest
++
++def test_dynamic_xfail(request):
++    # dynamically add xfail to this test
++    request.node.add_marker(pytest.mark.xfail(reason="dynamically xfail"))
++    assert 0

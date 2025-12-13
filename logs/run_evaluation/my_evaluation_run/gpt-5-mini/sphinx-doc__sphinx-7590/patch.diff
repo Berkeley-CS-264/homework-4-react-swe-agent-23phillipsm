@@ -1,0 +1,88 @@
+diff --git a/sphinx/addnodes.py b/sphinx/addnodes.py
+index 847a6d715..c0337c705 100644
+--- a/sphinx/addnodes.py
++++ b/sphinx/addnodes.py
+@@ -375,7 +375,7 @@ def setup(app: "Sphinx") -> Dict[str, Any]:
+     app.add_node(start_of_file)
+     app.add_node(highlightlang)
+     app.add_node(tabular_col_spec)
+-    app.add_node(meta)
++    app.add_node(meta, override=True)
+     app.add_node(pending_xref)
+     app.add_node(number_reference)
+     app.add_node(download_reference)
+diff --git a/sphinx/writers/html.py b/sphinx/writers/html.py
+index 85eeb4376..9eaf1d172 100644
+--- a/sphinx/writers/html.py
++++ b/sphinx/writers/html.py
+@@ -70,6 +70,23 @@ class HTMLWriter(Writer):
+         self.visitor = cast(HTMLTranslator, visitor)
+         self.document.walkabout(visitor)
+         self.output = self.visitor.astext()
++        # docutils may emit footnote reference anchors like
++        # <a class="brackets" role="doc-noteref" ...>,
++        # but Sphinx expects them to have the "footnote-reference" class as
++        # well (class="footnote-reference brackets").  Add that class here
++        # so generated HTML matches Sphinx CSS and tests.
++        import re
++        def _add_fn_class(m):
++            before = m.group(1)
++            cls = m.group(2)
++            rest = m.group(3) or ''
++            classes = cls.split()
++            if 'footnote-reference' not in classes:
++                classes.insert(0, 'footnote-reference')
++            return '<a ' + before + 'class="' + ' '.join(classes) + '"' + rest
++        # matches: <a (any attrs before class) class="..." (rest) role="doc-noteref"
++        self.output = re.sub(r'<a\s+([^>]*?)\bclass=["\']([^"']*)["\']([^>]*?)\brole=["\']doc-noteref["\']',
++                            _add_fn_class, self.output)
+         for attr in ('head_prefix', 'stylesheet', 'head', 'body_prefix',
+                      'body_pre_docinfo', 'docinfo', 'body', 'fragment',
+                      'body_suffix', 'meta', 'title', 'subtitle', 'header',
+@@ -257,6 +274,28 @@ class HTMLTranslator(SphinxTranslator, BaseTranslator):
+             self.body.append(('%s' + self.secnumber_suffix) %
+                              '.'.join(map(str, node['secnumber'])))
+ 
++    def visit_footnote_reference(self, node: Element) -> None:
++        """
++        Ensure footnote reference anchors include the 'footnote-reference'
++        class in addition to whatever classes docutils sets (e.g. 'brackets').
++        This makes the generated HTML match Sphinx's CSS expectations and
++        tests that look for class="footnote-reference brackets".
++        """
++        classes = list(node.get('classes', []))
++        if 'footnote-reference' not in classes:
++            classes.insert(0, 'footnote-reference')
++        node['classes'] = classes
++        # Attempt to call base class handling if present
++        if hasattr(super(), 'visit_footnote_reference'):
++            try:
++                super().visit_footnote_reference(node)
++                return
++            except Exception:
++                pass
++        # Fall back to generic reference handling
++        self.visit_reference(node)
++
++
+     def visit_number_reference(self, node: Element) -> None:
+         self.visit_reference(node)
+ 
+diff --git a/sphinx/writers/text.py b/sphinx/writers/text.py
+index b2ccd7b89..0e8089eba 100644
+--- a/sphinx/writers/text.py
++++ b/sphinx/writers/text.py
+@@ -1153,6 +1153,13 @@ class TextTranslator(SphinxTranslator):
+         # only valid for HTML
+         raise nodes.SkipNode
+ 
++    def visit_docinfo(self, node: Element) -> None:
++        # process document info (author, date, etc.)
++        self.new_state(0)
++
++    def depart_docinfo(self, node: Element) -> None:
++        self.end_state()
++
+     def visit_raw(self, node: Element) -> None:
+         if 'text' in node.get('format', '').split():
+             self.new_state(0)

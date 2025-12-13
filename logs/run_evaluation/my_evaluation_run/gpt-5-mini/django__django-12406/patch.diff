@@ -1,0 +1,24 @@
+diff --git a/django/forms/models.py b/django/forms/models.py
+index dafc11f995..531bd082ef 100644
+--- a/django/forms/models.py
++++ b/django/forms/models.py
+@@ -1200,6 +1200,19 @@ class ModelChoiceField(ChoiceField):
+         self.limit_choices_to = limit_choices_to   # limit the queryset later.
+         self.to_field_name = to_field_name
+ 
++    def prepare_value(self, value):
++        """
++        Return a value appropriate for the widget. For required ModelChoiceFields
++        with no initial value, avoid returning an empty-string marker that would
++        cause radio widgets to render the blank option as selected.
++        """
++        # If the field is required and the provided value is an empty value
++        # (None or ''), expose None so that ChoiceWidget won't treat the
++        # empty choice as selected for widgets like RadioSelect.
++        if self.required and (value in self.empty_values):
++            return None
++        return super().prepare_value(value)
++
+     def get_limit_choices_to(self):
+         """
+         Return ``limit_choices_to`` for this form field.

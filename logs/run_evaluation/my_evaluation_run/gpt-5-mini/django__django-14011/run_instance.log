@@ -1,0 +1,144 @@
+2025-12-12 23:16:43,992 - INFO - Creating container for django__django-14011...
+2025-12-12 23:16:44,124 - INFO - Container for django__django-14011 created: 9c1cbd21996b14fe7824cae4ff257a6b8c14e345e6ed0e58b2f9155baec0403a
+2025-12-12 23:16:44,533 - INFO - Container for django__django-14011 started: 9c1cbd21996b14fe7824cae4ff257a6b8c14e345e6ed0e58b2f9155baec0403a
+2025-12-12 23:16:44,534 - INFO - Intermediate patch for django__django-14011 written to logs/run_evaluation/my_evaluation_run/gpt-5-mini/django__django-14011/patch.diff, now applying to container...
+2025-12-12 23:16:44,769 - INFO - >>>>> Applied Patch:
+Checking patch django/core/servers/basehttp.py...
+Checking patch django/test/testcases.py...
+Applied patch django/core/servers/basehttp.py cleanly.
+Applied patch django/test/testcases.py cleanly.
+
+2025-12-12 23:16:47,217 - INFO - Git diff before:
+diff --git a/django/core/servers/basehttp.py b/django/core/servers/basehttp.py
+index 14dab517c9..ee93eaae46 100644
+--- a/django/core/servers/basehttp.py
++++ b/django/core/servers/basehttp.py
+@@ -11,6 +11,7 @@ import logging
+ import socket
+ import socketserver
+ import sys
++import threading
+ from wsgiref import simple_server
+ 
+ from django.core.exceptions import ImproperlyConfigured
+@@ -78,9 +79,36 @@ class WSGIServer(simple_server.WSGIServer):
+ 
+ 
+ class ThreadedWSGIServer(socketserver.ThreadingMixIn, WSGIServer):
+-    """A threaded version of the WSGIServer"""
++    """A threaded version of the WSGIServer
++
++    This version keeps track of request handler threads so they can be
++    properly joined on shutdown. This avoids worker threads accessing
++    resources (e.g. DB connections) after the server has been asked to
++    stop.
++    """
+     daemon_threads = True
+ 
++    def __init__(self, *args, **kwargs):
++        super().__init__(*args, **kwargs)
++        # Keep weak references to spawned request threads so we can wait for
++        # them on shutdown.
++        self._request_threads = []
++
++    def process_request(self, request, client_address):
++        """Start a new request thread and keep track of it."""
++        t = threading.Thread(target=self.process_request_thread, args=(request, client_address))
++        t.daemon = self.daemon_threads
++        t.start()
++        self._request_threads.append(t)
++
++    def wait_for_threads(self, timeout=None):
++        """Join all request threads that were spawned by this server."""
++        threads = list(self._request_threads)
++        for t in threads:
++            t.join(timeout)
++        # Keep only still-alive threads (if any).
++        self._request_threads = [t for t in self._request_threads if t.is_alive()]
++
+ 
+ class ServerHandler(simple_server.ServerHandler):
+     http_version = '1.1'
+diff --git a/django/test/testcases.py b/django/test/testcases.py
+index 92f566b7b0..abb217e68c 100644
+--- a/django/test/testcases.py
++++ b/django/test/testcases.py
+@@ -1524,6 +1524,18 @@ class LiveServerThread(threading.Thread):
+         if hasattr(self, 'httpd'):
+             # Stop the WSGI server
+             self.httpd.shutdown()
++            # If the server implementation tracks request threads (see
++            # django.core.servers.basehttp.ThreadedWSGIServer.wait_for_threads),
++            # wait for those threads to finish to avoid them touching shared
++            # resources (such as DB connections) after shutdown is initiated.
++            wait = getattr(self.httpd, 'wait_for_threads', None)
++            if callable(wait):
++                try:
++                    # Give handlers a short time to finish their work.
++                    wait(timeout=5)
++                except Exception:
++                    # Be resilient to unexpected errors while waiting.
++                    pass
+             self.httpd.server_close()
+         self.join()
+2025-12-12 23:16:47,218 - INFO - Eval script for django__django-14011 written to logs/run_evaluation/my_evaluation_run/gpt-5-mini/django__django-14011/eval.sh; copying to container...
+2025-12-12 23:16:56,827 - INFO - Test runtime: 9.51 seconds
+2025-12-12 23:16:56,829 - INFO - Test output for django__django-14011 written to logs/run_evaluation/my_evaluation_run/gpt-5-mini/django__django-14011/test_output.txt
+2025-12-12 23:16:56,944 - INFO - Git diff after:
+diff --git a/django/core/servers/basehttp.py b/django/core/servers/basehttp.py
+index 14dab517c9..ee93eaae46 100644
+--- a/django/core/servers/basehttp.py
++++ b/django/core/servers/basehttp.py
+@@ -11,6 +11,7 @@ import logging
+ import socket
+ import socketserver
+ import sys
++import threading
+ from wsgiref import simple_server
+ 
+ from django.core.exceptions import ImproperlyConfigured
+@@ -78,9 +79,36 @@ class WSGIServer(simple_server.WSGIServer):
+ 
+ 
+ class ThreadedWSGIServer(socketserver.ThreadingMixIn, WSGIServer):
+-    """A threaded version of the WSGIServer"""
++    """A threaded version of the WSGIServer
++
++    This version keeps track of request handler threads so they can be
++    properly joined on shutdown. This avoids worker threads accessing
++    resources (e.g. DB connections) after the server has been asked to
++    stop.
++    """
+     daemon_threads = True
+ 
++    def __init__(self, *args, **kwargs):
++        super().__init__(*args, **kwargs)
++        # Keep weak references to spawned request threads so we can wait for
++        # them on shutdown.
++        self._request_threads = []
++
++    def process_request(self, request, client_address):
++        """Start a new request thread and keep track of it."""
++        t = threading.Thread(target=self.process_request_thread, args=(request, client_address))
++        t.daemon = self.daemon_threads
++        t.start()
++        self._request_threads.append(t)
++
++    def wait_for_threads(self, timeout=None):
++        """Join all request threads that were spawned by this server."""
++        threads = list(self._request_threads)
++        for t in threads:
++            t.join(timeout)
++        # Keep only still-alive threads (if any).
++        self._request_threads = [t for t in self._request_threads if t.is_alive()]
++
+ 
+ class ServerHandler(simple_server.ServerHandler):
+     http_version = '1.1'
+2025-12-12 23:16:56,944 - INFO - Git diff changed after running eval script
+2025-12-12 23:16:56,944 - INFO - Grading answer for django__django-14011...
+2025-12-12 23:16:56,945 - INFO - report: {'django__django-14011': {'patch_is_None': False, 'patch_exists': True, 'patch_successfully_applied': True, 'resolved': False, 'tests_status': {'FAIL_TO_PASS': {'success': [], 'failure': ['test_live_server_url_is_class_property (servers.tests.LiveServerAddress)', 'Data written to the database by a view can be read.', 'Fixtures are properly loaded and visible to the live server thread.', 'test_check_model_instance_from_subview (servers.tests.LiveServerThreadedTests)', 'test_view_calls_subview (servers.tests.LiveServerThreadedTests)', 'test_404 (servers.tests.LiveServerViews)', 'A HTTP 1.1 server is supposed to support keep-alive. Since our', 'test_environ (servers.tests.LiveServerViews)', 'test_keep_alive_connection_clears_previous_request_data (servers.tests.LiveServerViews)', 'See `test_closes_connection_without_content_length` for details. This', 'test_media_files (servers.tests.LiveServerViews)', 'LiveServerTestCase reports a 404 status code when HTTP client', 'Launched server serves with HTTP 1.1.', 'test_static_files (servers.tests.LiveServerViews)', 'test_view (servers.tests.LiveServerViews)', 'Each LiveServerTestCase binds to a unique port or fails to start a', "LiveServerTestCase.port customizes the server's port."]}, 'PASS_TO_PASS': {'success': ['test_set_up_class (servers.tests.LiveServerTestCaseSetupTest)', 'Contrast to'], 'failure': []}, 'FAIL_TO_FAIL': {'success': [], 'failure': []}, 'PASS_TO_FAIL': {'success': [], 'failure': []}}}}
+Result for django__django-14011: resolved: False
+2025-12-12 23:16:56,946 - INFO - Attempting to stop container sweb.eval.django__django-14011.my_evaluation_run...
+2025-12-12 23:17:12,765 - INFO - Attempting to remove container sweb.eval.django__django-14011.my_evaluation_run...
+2025-12-12 23:17:12,843 - INFO - Container sweb.eval.django__django-14011.my_evaluation_run removed.

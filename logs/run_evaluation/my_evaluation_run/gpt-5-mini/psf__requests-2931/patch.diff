@@ -1,0 +1,25 @@
+diff --git a/requests/models.py b/requests/models.py
+index 9c624d3..82191e6 100644
+--- a/requests/models.py
++++ b/requests/models.py
+@@ -80,8 +80,19 @@ class RequestEncodingMixin(object):
+         if parameters are supplied as a dict.
+         """
+ 
+-        if isinstance(data, (str, bytes)):
++        # If data is a text string, convert it to the native string type.
++        # If it's bytes/bytearray, treat it as URL-encoded bytes for params
++        # and decode it to a native string using UTF-8. This preserves the
++        # previous behavior for query params (which expected bytes to be
++        # converted to text), but avoids decoding raw binary request bodies
++        # elsewhere in the codepath.
++        if isinstance(data, str):
+             return to_native_string(data)
++        elif isinstance(data, (bytes, bytearray)):
++            # Decode param bytes as UTF-8 to produce a native str for URL
++            # construction. Using UTF-8 here is more permissive than ASCII
++            # and matches how encoded query strings are typically represented.
++            return to_native_string(data, 'utf8')
+         elif hasattr(data, 'read'):
+             return data
+         elif hasattr(data, '__iter__'):

@@ -1,0 +1,111 @@
+class ResponseParser:
+    """
+    Parses LLM responses to extract a single function call using a rigid textual format.
+
+    The LLM must output exactly one function call at the end of its response.
+    Do NOT use JSON or XML. Use rfind to locate the final markers.
+    """
+
+    BEGIN_CALL = "----BEGIN_FUNCTION_CALL----"
+    END_CALL = "----END_FUNCTION_CALL----"
+    ARG_SEP = "----ARG----"
+    VALUE_SEP = "----VALUE----"
+
+    # Students should include this exact template in the system prompt so the LLM follows it.
+    response_format = f"""
+your_thoughts_here
+...
+{BEGIN_CALL}
+function_name
+{ARG_SEP}
+arg1_name
+{VALUE_SEP}
+arg1_value (can be multiline)
+{ARG_SEP}
+arg2_name
+{VALUE_SEP}
+arg2_value (can be multiline)
+...
+{END_CALL}
+
+DO NOT CHANGE ANY TEST! AS THEY WILL BE USED FOR EVALUATION.
+"""
+
+    def parse(self, text: str) -> dict:
+        """
+        Parse the function call from `text` using string.rfind to avoid confusion with
+        earlier delimiter-like content in the reasoning.
+
+        Returns a dictionary: {"thought": str, "name": str, "arguments": dict}
+        
+        TODO(student): Implement this function using rfind to parse the function call
+        """
+        # Find the last occurrence of BEGIN_CALL and END_CALL using rfind
+        begin_idx = text.rfind(self.BEGIN_CALL)
+        end_idx = text.rfind(self.END_CALL)
+        
+        if begin_idx == -1 or end_idx == -1:
+            raise ValueError(f"Could not find {self.BEGIN_CALL} or {self.END_CALL} in text")
+        
+        if end_idx <= begin_idx:
+            raise ValueError(f"{self.END_CALL} appears before {self.BEGIN_CALL}")
+        
+        # Extract thought (everything before BEGIN_CALL)
+        thought = text[:begin_idx].strip()
+        
+        # Extract function call section
+        call_section = text[begin_idx + len(self.BEGIN_CALL):end_idx].strip()
+        
+        # Split into lines for parsing
+        lines = call_section.split('\n')
+        
+        if not lines:
+            raise ValueError("Function call section is empty")
+        
+        # First line is the function name
+        function_name = lines[0].strip()
+        
+        # Parse arguments
+        arguments = {}
+        i = 1
+        while i < len(lines):
+            line = lines[i].strip()
+            
+            # Check if this line is an ARG_SEP marker
+            if line == self.ARG_SEP:
+                # Next line should be the argument name
+                if i + 1 >= len(lines):
+                    break
+                arg_name = lines[i + 1].strip()
+                
+                # Look for VALUE_SEP (should be on the next line after arg name)
+                if i + 2 >= len(lines) or lines[i + 2].strip() != self.VALUE_SEP:
+                    # If VALUE_SEP is missing, skip this argument
+                    i += 2
+                    continue
+                
+                # Collect value lines until we hit another ARG_SEP or end
+                value_start = i + 3  # Start after ARG_SEP, arg_name, VALUE_SEP
+                value_lines = []
+                
+                j = value_start
+                while j < len(lines):
+                    if lines[j].strip() == self.ARG_SEP:
+                        break
+                    value_lines.append(lines[j])
+                    j += 1
+                
+                # Join value lines and strip
+                arg_value = '\n'.join(value_lines).strip()
+                arguments[arg_name] = arg_value
+                
+                # Move to next argument (j is at the next ARG_SEP or end)
+                i = j
+            else:
+                i += 1
+        
+        return {
+            "thought": thought,
+            "name": function_name,
+            "arguments": arguments
+        }
